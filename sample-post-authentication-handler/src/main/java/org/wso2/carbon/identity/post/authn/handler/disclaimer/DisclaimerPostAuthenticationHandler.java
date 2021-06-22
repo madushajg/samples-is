@@ -18,75 +18,51 @@
 
 package org.wso2.carbon.identity.post.authn.handler.disclaimer;
 
-import org.apache.commons.codec.digest.DigestUtils;
-import org.wso2.carbon.identity.application.authentication.framework.config.ConfigurationFacade;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.wso2.carbon.identity.application.authentication.framework.context.AuthenticationContext;
-import org.wso2.carbon.identity.application.authentication.framework.exception.PostAuthenticationFailedException;
 import org.wso2.carbon.identity.application.authentication.framework.handler.request.AbstractPostAuthnHandler;
 import org.wso2.carbon.identity.application.authentication.framework.handler.request.PostAuthnHandlerFlowStatus;
-import org.wso2.carbon.identity.application.authentication.framework.model.AuthenticatedUser;
-import org.wso2.carbon.identity.application.authentication.framework.util.FrameworkUtils;
 
-import java.io.IOException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+import java.util.Map;
 
 public class DisclaimerPostAuthenticationHandler extends AbstractPostAuthnHandler {
 
-    private String CONSENT_POPPED_UP = "consentPoppedUp";
+    private static final Log log = LogFactory.getLog(DisclaimerPostAuthenticationHandler.class);
+
 
     @Override
     public PostAuthnHandlerFlowStatus handle(HttpServletRequest httpServletRequest,
                                              HttpServletResponse httpServletResponse,
-                                             AuthenticationContext authenticationContext)
-            throws PostAuthenticationFailedException {
+                                             AuthenticationContext authenticationContext) {
 
-        if (getAuthenticatedUser(authenticationContext) == null) {
-            return PostAuthnHandlerFlowStatus.SUCCESS_COMPLETED;
+        log.info("handling post authentication...");
+        String ip = httpServletRequest.getHeader("x-forwarded-for");
+        String hostName;
+        try {
+            hostName = InetAddress.getByName(httpServletRequest.getHeader("x-forwarded-for")).getHostName();
+
+            if (!ip.equalsIgnoreCase(hostName)) {
+                AzureInsightsClient.getInstance().trackEvent("trackedHostName",
+                        Map.of("hostName", hostName), null);
+            }
+
+        } catch (UnknownHostException e) {
+            log.error("failed to resolve host name for the IP:" + ip, e);
+            System.out.println(e.getMessage());
         }
 
-        if (isConsentPoppedUp(authenticationContext)) {
-            if (httpServletRequest.getParameter("consent").equalsIgnoreCase("approve")) {
-                return PostAuthnHandlerFlowStatus.SUCCESS_COMPLETED;
-            } else {
-                throw new PostAuthenticationFailedException("Cannot access this application : Consent Denied",
-                        "Consent denied");
-            }
-        } else {
-            try {
-                httpServletResponse.sendRedirect
-                        (ConfigurationFacade.getInstance().getAuthenticationEndpointURL().replace("/login.do", ""
-                        ) + "/disclaimer" + ".jsp?sessionDataKey=" + authenticationContext.getContextIdentifier() +
-                                "&application=" + authenticationContext
-                                .getSequenceConfig().getApplicationConfig().getApplicationName());
-                setConsentPoppedUpState(authenticationContext);
-                return PostAuthnHandlerFlowStatus.INCOMPLETE;
-            } catch (IOException e) {
-                throw new PostAuthenticationFailedException("Invalid Consent", "Error while redirecting", e);
-            }
-        }
+        return PostAuthnHandlerFlowStatus.SUCCESS_COMPLETED;
     }
 
     @Override
     public String getName() {
 
         return "DisclaimerHandler";
-    }
-
-    private AuthenticatedUser getAuthenticatedUser(AuthenticationContext authenticationContext) {
-
-        AuthenticatedUser user = authenticationContext.getSequenceConfig().getAuthenticatedUser();
-        return user;
-    }
-
-    private void setConsentPoppedUpState(AuthenticationContext authenticationContext) {
-
-        authenticationContext.addParameter(CONSENT_POPPED_UP, true);
-    }
-
-    private boolean isConsentPoppedUp(AuthenticationContext authenticationContext) {
-
-        return authenticationContext.getParameter(CONSENT_POPPED_UP) != null;
     }
 
 }
